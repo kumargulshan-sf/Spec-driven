@@ -12,8 +12,8 @@ This doc is **HLD only** — flows, decision points, touchpoints. Skill content 
 
 | Persona | Starting state | Wants |
 |---|---|---|
-| **P1 — No-code** | No existing app, just an idea | Fastest paved start. Doesn't care about toolchain. |
-| **P2 — Pro-code: greenfield** | No existing app, but has a strong toolchain preference (e.g., "I want Angular CLI" / "I want Next.js" / "I want SvelteKit") | Builds the project their way; just wants the Salesforce wiring done correctly |
+| **P1 — No-code** | No existing app, just an idea | Fastest paved start. Doesn't care about toolchain. | // generate ui bundle command
+| **P2 — Pro-code: greenfield** | No existing app, but has a strong toolchain preference (e.g., "I want Angular CLI" / "I want Next.js" / "I want SvelteKit") | Builds the project their way; just wants the Salesforce wiring done correctly | 
 | **P3 — Pro-code: migration** | Existing app outside Salesforce (any framework, any toolchain) | Bring the app into UI Bundles without rewriting |
 
 ---
