@@ -4,6 +4,8 @@
 
 **Prerequisites:** Access to `@salesforce/ui-bundle` package (provides `getOrgInfo`, `loadManifest`, `createProxyHandler`, `injectLivePreviewScript`).
 
+**PR:** https://github.com/salesforce-experience-platform-emu/webapps/pull/641
+
 ---
 
 ## Package Structure
@@ -11,21 +13,23 @@
 ```
 @salesforce/angular-plugin-ui-bundle/
 ├── package.json
+├── tsconfig.json
 ├── tsconfig.build.json
+├── vitest.config.ts
 └── src/
     ├── index.ts                    # Public API exports
-    ├── types.ts                    # SalesforceOptions interface
-    ├── utils.ts                    # Constants + helpers
+    ├── types.ts                    # SalesforceOptions + Middleware types
+    ├── utils.ts                    # Constants + helpers + getCodeBuilderBasePath
     ├── api-version.ts              # Resolve API version from sf CLI
     ├── plugins/
     │   └── api-version.ts          # esbuild plugin factory
     ├── middleware/
-    │   ├── proxy.ts                # Proxy middleware factory
+    │   ├── proxy.ts                # Proxy middleware factory + health check
     │   └── html.ts                 # HTML injection middleware factory
     ├── html/
-    │   └── transformer.ts          # Shared HTML transformation logic
+    │   └── transformer.ts          # HTML transformer factory (SFDC_ENV, Live Preview, base href)
     ├── design/
-    │   └── inject-attributes.ts    # Design mode template pre-processing
+    │   └── inject-attributes.ts    # Design mode template pre-processing (planned — separate WI)
     └── bin/
         └── serve.ts                # sf-angular-serve CLI command
 ```
@@ -36,42 +40,51 @@
 
 ```json
 {
-  "name": "<plugin-name-tbd>",
+  "name": "@salesforce/angular-plugin-ui-bundle",
+  "description": "Angular CLI plugin for Salesforce UI Bundles",
   "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./design": {
-      "types": "./dist/design/inject-attributes.d.ts",
-      "import": "./dist/design/inject-attributes.js"
-    }
+    "./package.json": "./package.json"
   },
   "bin": {
     "sf-angular-serve": "./dist/bin/serve.js"
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@salesforce/ui-bundle": "^1.125.1",
+    "@salesforce/ui-bundle": "^10.12.3",
     "chokidar": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "esbuild": "^0.24.0",
-    "typescript": "~5.9.0"
+    "@types/node": "^24.9.2",
+    "esbuild": "^0.27.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.6"
   },
   "peerDependencies": {
-    "@angular-builders/custom-esbuild": ">=21.0.0",
-    "@angular-devkit/architect": ">=0.1700.0",
-    "@angular/build": ">=17.0.0",
-    "@angular/compiler": ">=17.0.0"
+    "@angular-builders/custom-esbuild": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
 ```
@@ -82,23 +95,16 @@
 
 ```json
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
     "noEmit": false,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "strict": true,
-    "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
 }
 ```
 
@@ -106,13 +112,37 @@
 
 ---
 
+## tsconfig.json (for ESLint/editor)
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+---
+
 ## src/types.ts
 
 ```ts
+import type { IncomingMessage, ServerResponse } from "node:http";
+
 export interface SalesforceOptions {
-    orgAlias?: string;
-    debug?: boolean;
+	orgAlias?: string;
+	debug?: boolean;
 }
+
+export type Middleware = (
+	req: IncomingMessage,
+	res: ServerResponse,
+	next: (err?: unknown) => void,
+) => void;
 ```
 
 ---
@@ -124,13 +154,25 @@ export const DEFAULT_API_VERSION = "65.0";
 export const DEFAULT_PORT = 5173;
 
 export function getPort(): number {
-    return parseInt(process.env.SF_UIBUNDLE_PORT || DEFAULT_PORT.toString(), 10);
+	return parseInt(process.env.SF_UIBUNDLE_PORT || DEFAULT_PORT.toString(), 10);
+}
+
+export function getCodeBuilderBasePath(proxyUri: string, port: number): string {
+	try {
+		const url = new URL(proxyUri.replace("{{port}}", port.toString()));
+		return url.pathname;
+	} catch (error) {
+		console.error("Failed to parse CODE_BUILDER_FRAMEWORK_PROXY_URI:", error);
+		return `/absproxy/${port}`;
+	}
 }
 ```
 
 **Why 5173:** `sf ui-bundle dev` hardcodes `http://localhost:5173` as fallback. Matching it eliminates config boilerplate.
 
 **Why "65.0":** Matches `@salesforce/sdk-data`'s fallback. If org resolution fails, both sides agree on the same default.
+
+**Why `getCodeBuilderBasePath`:** Code Builder sets a full URL like `https://name.code-builder.com/absproxy/{{port}}`. We need just the path (`/absproxy/5173`) for routing and base href. Same logic as `vite-plugin-ui-bundle`.
 
 ---
 
@@ -141,16 +183,16 @@ import { getOrgInfo } from "@salesforce/ui-bundle/app";
 import { DEFAULT_API_VERSION } from "./utils.ts";
 
 export async function resolveApiVersion(orgAlias?: string): Promise<string> {
-    try {
-        const orgInfo = await getOrgInfo(orgAlias);
-        return orgInfo?.apiVersion || DEFAULT_API_VERSION;
-    } catch {
-        return DEFAULT_API_VERSION;
-    }
+	try {
+		const orgInfo = await getOrgInfo(orgAlias);
+		return orgInfo?.apiVersion || DEFAULT_API_VERSION;
+	} catch {
+		return DEFAULT_API_VERSION;
+	}
 }
 ```
 
-**What `getOrgInfo` does:** Reads the `sf` CLI session to get connected org's API version + instance URL. Slow (~60s) when no org is connected — falls back to default.
+**What `getOrgInfo` does:** Reads the `sf` CLI session to get connected org's API version + instance URL. Can be slow when no org is connected — falls back to default.
 
 ---
 
@@ -162,30 +204,32 @@ import { resolveApiVersion } from "../api-version.ts";
 import type { SalesforceOptions } from "../types.ts";
 
 export interface ApiVersionResult {
-    plugin: Plugin;
-    version: string;
+	plugin: Plugin;
+	version: string;
 }
 
 export async function createApiVersionPlugin(
-    options: SalesforceOptions = {},
+	options: SalesforceOptions = {},
 ): Promise<ApiVersionResult> {
-    const version = await resolveApiVersion(options.orgAlias);
+	const version = await resolveApiVersion(options.orgAlias);
 
-    const plugin: Plugin = {
-        name: "salesforce-api-version",
-        setup(build: PluginBuild) {
-            build.initialOptions.define ??= {};
-            build.initialOptions.define["__SF_API_VERSION__"] = JSON.stringify(version);
-        },
-    };
+	if (options.debug) {
+		console.log(`[angular-plugin-ui-bundle] API version resolved: ${version}`);
+	}
 
-    return { plugin, version };
+	const plugin: Plugin = {
+		name: "@salesforce/angular-plugin-ui-bundle:api-version",
+		setup(build: PluginBuild) {
+			build.initialOptions.define ??= {};
+			build.initialOptions.define["__SF_API_VERSION__"] = JSON.stringify(version);
+		},
+	};
+
+	return { plugin, version };
 }
 ```
 
-**Why wrapper object `{ plugin, version }`:** esbuild validates Plugin objects at runtime and rejects unknown properties. We can't attach `version` to the plugin itself. The wrapper lets the bin command access the resolved version for `--define`.
-
-**What this does:** Mutates esbuild's `define` option at build startup. Every occurrence of `__SF_API_VERSION__` in source code (including `node_modules/@salesforce/sdk-data`) gets replaced with the resolved version string.
+**Why wrapper object `{ plugin, version }`:** esbuild validates Plugin objects at runtime and rejects unknown properties. The wrapper lets the bin command access the resolved version for `--define`.
 
 **Limitation in dev mode:** This plugin runs on the APPLICATION esbuild pass only. Vite's `optimizeDeps` prebundle of `node_modules` is a SEPARATE esbuild invocation that this plugin doesn't reach. The bin command (`sf-angular-serve`) solves this by passing `--define` as a CLI flag to `ng serve`.
 
@@ -194,163 +238,194 @@ export async function createApiVersionPlugin(
 ## src/middleware/proxy.ts
 
 ```ts
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
-import { watch } from "chokidar";
+import type { UIBundleManifest, OrgInfo } from "@salesforce/ui-bundle/app";
 import { loadManifest, getOrgInfo } from "@salesforce/ui-bundle/app";
+import type { ProxyHandler } from "@salesforce/ui-bundle/proxy";
 import { createProxyHandler } from "@salesforce/ui-bundle/proxy";
-import type { SalesforceOptions } from "../types.ts";
-import { getPort } from "../utils.ts";
+import { watch } from "chokidar";
+import type { Middleware, SalesforceOptions } from "../types.ts";
+import { getCodeBuilderBasePath, getPort } from "../utils.ts";
 
-let cachedManifest: any;
-let cachedOrgInfo: any;
-let currentHandler: any;
+let cachedManifest: UIBundleManifest | undefined;
+let cachedOrgInfo: OrgInfo | undefined;
+let currentHandler: ProxyHandler | undefined;
 
-function buildHandler(manifest: any, orgInfo: any, options: SalesforceOptions) {
-    const port = getPort();
-    const codeBuilderProxyUrl = process.env.CODE_BUILDER_FRAMEWORK_PROXY_URI;
-    const target = codeBuilderProxyUrl || `http://localhost:${port}`;
-    const basePath = codeBuilderProxyUrl || undefined;
+function buildHandler(
+	manifest: UIBundleManifest,
+	orgInfo: OrgInfo | undefined,
+	options: SalesforceOptions,
+): ProxyHandler {
+	const port = getPort();
+	const codeBuilderProxyUrl = process.env.CODE_BUILDER_FRAMEWORK_PROXY_URI;
+	const target = codeBuilderProxyUrl
+		? getCodeBuilderBasePath(codeBuilderProxyUrl, port)
+		: `http://localhost:${port}`;
+	const basePath = codeBuilderProxyUrl
+		? getCodeBuilderBasePath(codeBuilderProxyUrl, port)
+		: undefined;
 
-    return createProxyHandler(manifest, orgInfo, target, basePath, {
-        debug: options.debug ?? false,
-    });
+	return createProxyHandler(manifest, orgInfo, target, basePath, {
+		debug: options.debug ?? false,
+	});
 }
 
-export type Middleware = (
-    req: IncomingMessage,
-    res: ServerResponse,
-    next: (err?: unknown) => void,
-) => void;
-
 export async function createProxyMiddleware(
-    options: SalesforceOptions = {},
+	options: SalesforceOptions = {},
 ): Promise<Middleware> {
-    const manifestPath = resolve(process.cwd(), "ui-bundle.json");
+	const manifestPath = resolve(process.cwd(), "ui-bundle.json");
 
-    if (!cachedManifest) {
-        cachedManifest = await loadManifest(manifestPath);
-    }
+	if (!cachedManifest) {
+		cachedManifest = await loadManifest(manifestPath);
+	}
 
-    if (!cachedOrgInfo) {
-        try {
-            cachedOrgInfo = await getOrgInfo(options.orgAlias);
-        } catch {
-            cachedOrgInfo = undefined;
-        }
-    }
+	if (!cachedOrgInfo) {
+		try {
+			cachedOrgInfo = await getOrgInfo(options.orgAlias);
+		} catch {
+			cachedOrgInfo = undefined;
+		}
+	}
 
-    if (cachedManifest) {
-        currentHandler = buildHandler(cachedManifest, cachedOrgInfo, options);
-    }
+	if (cachedManifest) {
+		currentHandler = buildHandler(cachedManifest, cachedOrgInfo, options);
+	}
 
-    // Watch manifest for changes — recreate handler automatically
-    const watcher = watch(manifestPath, { ignoreInitial: true });
-    watcher.on("change", async () => {
-        try {
-            const updated = await loadManifest(manifestPath);
-            if (updated) {
-                cachedManifest = updated;
-                currentHandler = buildHandler(cachedManifest, cachedOrgInfo, options);
-            }
-        } catch (error) {
-            console.error("[plugin] Failed to reload ui-bundle.json:", error);
-        }
-    });
+	const watcher = watch(manifestPath, { ignoreInitial: true });
+	watcher.on("change", async () => {
+		try {
+			const updated = await loadManifest(manifestPath);
+			if (updated) {
+				cachedManifest = updated;
+				currentHandler = buildHandler(cachedManifest, cachedOrgInfo, options);
+			}
+		} catch (error) {
+			console.error("[angular-plugin-ui-bundle] Failed to reload ui-bundle.json:", error);
+		}
+	});
 
-    const middleware: Middleware = async (req, res, next) => {
-        if (currentHandler) {
-            try {
-                await currentHandler(req, res, next);
-            } catch (error) {
-                console.error("[plugin] Proxy handler error:", error);
-                if (next) next();
-            }
-        } else {
-            if (req.url?.startsWith("/services")) {
-                res.writeHead(503, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "Proxy not initialized" }));
-                return;
-            }
-            if (next) next();
-        }
-    };
+	const middleware: Middleware = async (req, res, next) => {
+		// Health check for sf ui-bundle dev orchestrator
+		if (req.url?.includes("sfProxyHealthCheck=true")) {
+			res.setHeader("X-Salesforce-UIBundle-Proxy", "true");
+			res.writeHead(200);
+			res.end();
+			return;
+		}
 
-    return middleware;
+		if (currentHandler) {
+			try {
+				await currentHandler(req, res, next);
+			} catch (error) {
+				console.error("[angular-plugin-ui-bundle] Proxy handler error:", error);
+				if (next) next();
+			}
+		} else {
+			if (req.url?.startsWith("/services")) {
+				res.writeHead(503, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ error: "Proxy not initialized" }));
+				return;
+			}
+			if (next) next();
+		}
+	};
+
+	return middleware;
 }
 ```
 
 **Key decisions:**
 - `basePath = undefined` for local dev (NOT `"/"`). Passing `"/"` creates double-slash in route regex → nothing matches.
+- `getCodeBuilderBasePath` extracts just the path from Code Builder's full URL.
+- Health check: responds with `X-Salesforce-UIBundle-Proxy: true` so `sf ui-bundle dev` orchestrator skips standalone proxy.
 - Module-level caching: manifest + orgInfo loaded once, shared across requests.
-- Chokidar watches `ui-bundle.json`: on change → reload manifest → recreate handler. Browser needs manual refresh (no WebSocket API access).
+- Chokidar watches `ui-bundle.json`: on change → reload manifest → recreate handler. Browser needs manual refresh.
 - Graceful degradation: if no org connected, proxy returns 503 for `/services/*`.
-
-**ui-bundle.json redirect format expected by `createProxyHandler`:**
-```json
-{ "route": "/old-path", "target": "/new-path", "statusCode": 301 }
-```
-NOT `from`/`to`/`status` — those field names will cause runtime errors.
 
 ---
 
 ## src/middleware/html.ts
 
 ```ts
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { transformHtml } from "../html/transformer.ts";
-import type { SalesforceOptions } from "../types.ts";
-
-export type Middleware = (
-    req: IncomingMessage,
-    res: ServerResponse,
-    next: (err?: unknown) => void,
-) => void;
+import type { IndexHtmlTransformFn } from "../html/transformer.ts";
+import { createIndexHtmlTransformer } from "../html/transformer.ts";
+import type { Middleware, SalesforceOptions } from "../types.ts";
 
 export async function createHtmlMiddleware(
-    options: SalesforceOptions = {},
+	options: SalesforceOptions = {},
 ): Promise<Middleware> {
-    const middleware: Middleware = (req, res, next) => {
-        // Only intercept root HTML requests
-        if (req.url !== "/" && req.url !== "/index.html") {
-            return next();
-        }
+	const htmlTransformer: IndexHtmlTransformFn =
+		await createIndexHtmlTransformer(options);
 
-        const originalEnd = res.end.bind(res);
-        const originalWrite = res.write.bind(res);
-        const chunks: Buffer[] = [];
+	return (req, res, next) => {
+		const url = req.url?.split("?")[0] ?? "/";
+		const hasExtension = url.lastIndexOf(".") > url.lastIndexOf("/");
+		const isServicePath = url.startsWith("/services/") || url.startsWith("/@");
 
-        res.write = function (chunk: any, ...args: any[]) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-            return true;
-        } as any;
+		if (hasExtension || isServicePath) {
+			if (next) next();
+			return;
+		}
 
-        res.end = function (chunk?: any, ...args: any[]) {
-            if (chunk) {
-                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-            }
+		const originalEnd = res.end.bind(res);
+		let body = Buffer.from("");
 
-            const html = Buffer.concat(chunks).toString("utf8");
+		res.write = function (chunk: unknown): boolean {
+			body = Buffer.concat([body, Buffer.from(chunk as string)]);
+			return true;
+		} as typeof res.write;
 
-            try {
-                const transformed = transformHtml(html);
-                originalEnd(Buffer.from(transformed, "utf8"));
-            } catch (error) {
-                console.error("[plugin] HTML transformation failed:", error);
-                originalEnd(Buffer.from(html, "utf8"));
-            }
-        } as any;
+		res.end = function (chunk?: unknown): typeof res {
+			if (chunk) {
+				body = Buffer.concat([body, Buffer.from(chunk as string)]);
+			}
 
-        next();
-    };
+			const html = body.toString("utf8");
 
-    return middleware;
+			try {
+				const transformedResult = htmlTransformer(html, {
+					configuration: "development",
+				});
+
+				Promise.resolve(transformedResult)
+					.then((finalHtml) => {
+						const finalBuffer = Buffer.from(finalHtml, "utf8");
+						if (!res.headersSent) {
+							res.setHeader("content-length", finalBuffer.byteLength);
+						}
+						originalEnd(finalBuffer);
+					})
+					.catch((error) => {
+						console.error("[angular-plugin-ui-bundle] HTML transformation failed:", error);
+						const fallbackBuffer = Buffer.from(html, "utf8");
+						if (!res.headersSent) {
+							res.setHeader("content-length", fallbackBuffer.byteLength);
+						}
+						originalEnd(fallbackBuffer);
+					});
+			} catch (error) {
+				console.error("[angular-plugin-ui-bundle] HTML transformation failed:", error);
+				const fallbackBuffer = Buffer.from(html, "utf8");
+				if (!res.headersSent) {
+					res.setHeader("content-length", fallbackBuffer.byteLength);
+				}
+				originalEnd(fallbackBuffer);
+			}
+
+			return res;
+		} as typeof res.end;
+
+		if (next) next();
+	};
 }
 ```
 
-**Why this pattern:** `indexHtmlTransformer` (Angular's clean API) is STRIPPED by `@angular-builders/custom-esbuild:dev-server` before passing to Vite. It only works for `ng build`, NOT `ng serve`. Middleware response wrapping is the only way to transform HTML in dev mode.
-
-**Execution order matters:** HTML middleware runs FIRST (wraps response), proxy middleware runs SECOND (forwards or passes through). When Angular's Vite server generates `index.html` and calls `res.end()`, our wrapped version intercepts and transforms.
+**Key decisions:**
+- Intercepts ALL navigation routes (no file extension, not `/services/`, not `/@`), not just `/` and `/index.html`.
+- `res.headersSent` guard: prevents `ERR_HTTP_HEADERS_SENT` crash on HEAD requests (orchestrator health poll).
+- Content-length updated after transform to prevent browser truncation.
+- `indexHtmlTransformer` (Angular's clean API) is STRIPPED by `@angular-builders/custom-esbuild:dev-server`. Middleware response wrapping is the only way.
+- Execution order: HTML middleware FIRST (wraps response), proxy middleware SECOND.
 
 ---
 
@@ -359,42 +434,66 @@ export async function createHtmlMiddleware(
 ```ts
 import { getOrgInfo } from "@salesforce/ui-bundle/app";
 import { injectLivePreviewScript } from "@salesforce/ui-bundle/proxy";
+import type { SalesforceOptions } from "../types.ts";
+import { getCodeBuilderBasePath, getPort } from "../utils.ts";
 
-export function transformHtml(html: string): string {
-    let result = html;
+interface BuildTarget {
+	project?: string;
+	target?: string;
+	configuration?: string;
+}
 
-    // 1. Inject Live Preview script before </body>
-    const livePreviewScript = injectLivePreviewScript();
-    if (livePreviewScript) {
-        result = result.replace("</body>", `${livePreviewScript}\n</body>`);
-    }
+export type IndexHtmlTransformFn = (html: string, target?: BuildTarget) => string | Promise<string>;
 
-    // 2. Inject <base href> in <head>
-    const codeBuilderProxy = process.env.CODE_BUILDER_FRAMEWORK_PROXY_URI;
-    const basePath = codeBuilderProxy || "/";
-    const baseTag = `<base href="${basePath}" />`;
-    result = result.replace("<head>", `<head>\n  ${baseTag}`);
+export async function createIndexHtmlTransformer(
+	options: SalesforceOptions = {},
+): Promise<IndexHtmlTransformFn> {
+	const port = getPort();
+	const codeBuilderProxyUrl = process.env.CODE_BUILDER_FRAMEWORK_PROXY_URI;
+	const isCodeBuilder = !!codeBuilderProxyUrl;
 
-    // 3. Inject SFDC_ENV global before </head>
-    const sfdcEnvScript = `<script>(function() {
-  globalThis.SFDC_ENV = { basePath: "${basePath}", apiPath: "${basePath}" };
-})();</script>`;
-    result = result.replace("</head>", `  ${sfdcEnvScript}\n</head>`);
+	const basePath = isCodeBuilder ? getCodeBuilderBasePath(codeBuilderProxyUrl!, port) : "/";
+	const apiPath = basePath;
 
-    return result;
+	let orgUrl: string | undefined;
+	try {
+		const orgInfo = await getOrgInfo(options.orgAlias);
+		orgUrl = orgInfo?.instanceUrl;
+	} catch {
+		orgUrl = undefined;
+	}
+
+	return (html: string, target?: BuildTarget): string => {
+		if (target?.configuration !== "development") {
+			return html;
+		}
+
+		html = injectLivePreviewScript(html);
+
+		const baseHref = basePath.endsWith("/") ? basePath : `${basePath}/`;
+		html = html.replace(/<base\s+href="[^"]*"\s*\/?>/, `<base href="${baseHref}">`);
+
+		const orgUrlEntry = orgUrl ? `, orgUrl: "${orgUrl}"` : "";
+		const sfdcEnvScript = `<script>(function() { globalThis.SFDC_ENV = { basePath: "${basePath}", apiPath: "${apiPath}"${orgUrlEntry} }; })();</script>`;
+		if (html.includes("</head>")) {
+			html = html.replace("</head>", `  ${sfdcEnvScript}\n</head>`);
+		}
+
+		return html;
+	};
 }
 ```
 
-**Three injections (dev-only):**
-1. **Live Preview script** — VS Code extension communication (postMessage bridge)
-2. **Base href** — dynamic from `CODE_BUILDER_FRAMEWORK_PROXY_URI` (or `/` for local)
-3. **SFDC_ENV global** — `basePath` + `apiPath` for Angular router (`APP_BASE_HREF`) and API calls
-
-**Production builds (`ng build`) never run this** — middleware only runs during `ng serve`.
+**Key decisions:**
+- Factory pattern: resolves basePath + orgUrl once at startup, returns a sync transform.
+- Configuration guard: only injects in `"development"` mode. Production builds pass through unchanged.
+- `injectLivePreviewScript(html)` takes HTML and returns it with script injected (from `@salesforce/ui-bundle/proxy`).
+- Base href REPLACES existing `<base href="...">` (not insert new one) to avoid duplicates.
+- `orgUrl` injected in SFDC_ENV matching vite-plugin-ui-bundle behavior.
 
 ---
 
-## src/design/inject-attributes.ts
+## src/design/inject-attributes.ts (Planned — separate WI)
 
 ```ts
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
@@ -501,63 +600,67 @@ export function restoreTemplates(state: DesignModeState): void {
 ## src/bin/serve.ts
 
 ```ts
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-deprecation
 import { spawn } from "node:child_process";
 import { createApiVersionPlugin } from "../plugins/api-version.ts";
 import { getPort } from "../utils.ts";
-import { preprocessTemplates, restoreTemplates, type DesignModeState } from "../design/inject-attributes.ts";
-
-const DESIGN_MODE = process.env.SF_DESIGN_MODE === "true" || process.argv.includes("--design");
 
 const { version } = await createApiVersionPlugin();
 const port = getPort();
 
-let designState: DesignModeState | null = null;
-
-if (DESIGN_MODE) {
-    designState = await preprocessTemplates(process.cwd());
-}
-
 const defineArg = `__SF_API_VERSION__=${JSON.stringify(JSON.stringify(version))}`;
 
-const child = spawn("ng", ["serve", `--define=${defineArg}`, `--port=${port}`], {
-    stdio: "inherit",
-    shell: true,
+const child = spawn(
+	"ng",
+	["serve", `--define=${defineArg}`, `--port=${port}`],
+	{
+		stdio: "inherit",
+		shell: true,
+		env: { ...process.env, NODE_OPTIONS: "--no-deprecation" },
+	},
+);
+
+child.on("error", (err) => {
+	console.error("[sf-angular-serve] Failed to start ng:", err.message);
+	process.exit(1);
 });
 
-function cleanup(): void {
-    if (designState) {
-        restoreTemplates(designState);
-    }
-}
+child.on("exit", (code) => {
+	process.exit(code ?? 0);
+});
 
-child.on("exit", (code) => { cleanup(); process.exit(code ?? 0); });
-process.on("SIGINT", () => { cleanup(); child.kill("SIGINT"); });
-process.on("SIGTERM", () => { cleanup(); child.kill("SIGTERM"); });
+process.on("SIGINT", () => {
+	child.kill("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+	child.kill("SIGTERM");
+});
 ```
 
 **Why this exists:**
 - `--define` flag is the ONLY way to reach Vite's `optimizeDeps` prebundle with substitution
 - `plugins[]` in angular.json only reaches the app esbuild pass, not deps prebundle
-- Design mode pre-processing must run BEFORE `ng serve` starts compilation
-- Port must be passed explicitly (not Angular's default 4200)
+- Port must be passed explicitly (not Angular's default 4200) — matches `sf ui-bundle dev` default of 5173
+- `--no-deprecation` suppresses Node.js punycode warning from Angular CLI internals
 
 **Double JSON.stringify:** esbuild's `define` requires valid JS source (`"68.0"` not `68.0`). Shell strips one set of quotes. So: `JSON.stringify(JSON.stringify(version))` → `'"68.0"'` → esbuild sees `"68.0"`.
+
+**Error handling:** `child.on("error")` catches `ENOENT` when `ng` isn't on PATH — gives clear error instead of crash.
 
 ---
 
 ## src/index.ts
 
 ```ts
-export type { SalesforceOptions } from "./types.ts";
+export type { SalesforceOptions, Middleware } from "./types.ts";
 export type { ApiVersionResult } from "./plugins/api-version.ts";
 export { createApiVersionPlugin } from "./plugins/api-version.ts";
 export { DEFAULT_API_VERSION, DEFAULT_PORT, getPort } from "./utils.ts";
-export type { Middleware } from "./middleware/proxy.ts";
 export { createProxyMiddleware } from "./middleware/proxy.ts";
 export { createHtmlMiddleware } from "./middleware/html.ts";
-export type { DesignModeState } from "./design/inject-attributes.ts";
-export { preprocessTemplates, restoreTemplates, injectDesignAttributes, findTemplateFiles } from "./design/inject-attributes.ts";
+export type { IndexHtmlTransformFn } from "./html/transformer.ts";
+export { createIndexHtmlTransformer } from "./html/transformer.ts";
 ```
 
 ---
@@ -565,10 +668,64 @@ export { preprocessTemplates, restoreTemplates, injectDesignAttributes, findTemp
 ## Build & Verify
 
 ```bash
-npm run build    # tsc emits to dist/
-ls dist/bin/serve.js    # bin command exists
-head -1 dist/bin/serve.js    # has #!/usr/bin/env node shebang
+npm run build        # tsc emits to dist/
+chmod +x dist/bin/serve.js   # Required for local file: links
+npm run test         # 37 tests passing
+npm run test:coverage  # 74.5% statements
 ```
+
+---
+
+## How It Integrates (Template Wiring)
+
+The template's `angular.json` wires the plugin:
+
+```json
+{
+  "architect": {
+    "build": {
+      "builder": "@angular-builders/custom-esbuild:application",
+      "options": {
+        "plugins": ["./esbuild/api-version.mjs"]
+      }
+    },
+    "serve": {
+      "builder": "@angular-builders/custom-esbuild:dev-server",
+      "options": {
+        "middlewares": ["./middleware/html.mjs", "./middleware/proxy.mjs"]
+      }
+    }
+  }
+}
+```
+
+Template glue files:
+```js
+// esbuild/api-version.mjs
+import { createApiVersionPlugin } from '@salesforce/angular-plugin-ui-bundle';
+export default await createApiVersionPlugin();
+
+// middleware/html.mjs
+import { createHtmlMiddleware } from '@salesforce/angular-plugin-ui-bundle';
+export default await createHtmlMiddleware();
+
+// middleware/proxy.mjs
+import { createProxyMiddleware } from '@salesforce/angular-plugin-ui-bundle';
+export default await createProxyMiddleware();
+```
+
+---
+
+## sf ui-bundle dev Integration
+
+The orchestrator flow:
+1. `sf ui-bundle dev` → spawns `npm run dev` → `sf-angular-serve` → `ng serve --port=5173`
+2. Orchestrator polls `http://localhost:5173` (HEAD request, 500ms intervals, 60s timeout)
+3. Once reachable, sends `GET ?sfProxyHealthCheck=true`
+4. Our proxy middleware responds with `X-Salesforce-UIBundle-Proxy: true`
+5. Orchestrator detects header → skips standalone proxy → uses 5173 directly
+
+Without health check: orchestrator creates standalone proxy on 4545 (handles API proxy + Live Preview but NOT SFDC_ENV).
 
 ---
 
@@ -576,9 +733,10 @@ head -1 dist/bin/serve.js    # has #!/usr/bin/env node shebang
 
 1. **esbuild rejects unknown Plugin properties** — never attach extra fields to the Plugin object. Use wrapper `{ plugin, version }`.
 2. **`basePath` must be `undefined` not `"/"`** — `"/"` creates double-slash in routing regex.
-3. **`indexHtmlTransformer` doesn't work in dev** — Angular strips it. Use middleware wrapping.
-4. **ui-bundle.json uses `route`/`target`/`statusCode`** — NOT `from`/`to`/`status`. Wrong names cause silent failures or runtime errors.
-5. **`allowImportingTsExtensions` + `rewriteRelativeImportExtensions`** — both required in tsconfig.
-6. **Build `@salesforce/ui-bundle` BEFORE this plugin** — tsc needs its types.
-7. **Shebang `#!/usr/bin/env node`** — must be first line of `bin/serve.ts` for tsc to preserve it.
-8. **`file:` link in template uses 6 `..` levels** — from `force-app/main/default/uiBundles/<name>/` to `webapps/packages/`. Five fails silently.
+3. **`indexHtmlTransformer` doesn't work in dev** — Angular strips it in dev-server. Use middleware wrapping.
+4. **`res.headersSent` check required** — HEAD requests from orchestrator poll trigger `ERR_HTTP_HEADERS_SENT` if you call `setHeader` after headers are sent.
+5. **`allowImportingTsExtensions` + `rewriteRelativeImportExtensions`** — both required in tsconfig.build.json.
+6. **`chmod +x dist/bin/serve.js`** — tsc doesn't set executable bit. Only needed for local `file:` links during development. npm publish/install handles this automatically in production.
+7. **`getOrgInfo()` can be slow** — up to 60s when no org connected. Can block server startup within `sf ui-bundle dev`'s 60s poll timeout.
+8. **`--define` requires Angular 19.2+** — our template targets Angular 21. Earlier versions don't support this flag on `ng serve`.
+9. **Content-length must be updated** — after HTML transformation, set correct byte length or browser truncates.
