@@ -53,30 +53,32 @@ poc/              — Historical archive (unchanged POC docs for reference)
 
 ## Repository Locations
 
-| What | Path |
-|------|------|
-| Plugin | `webapps/packages/angular-plugin-ui-bundle/` |
-| Template (CLI) | `salesforcedx-templates/src/templates/uiBundles/angularbasic/` |
-| Template (Vite) | `salesforcedx-templates/src/templates/uiBundles/angularvite/` |
-| Test project | `sf-angular-test/force-app/main/default/uiBundles/myApp/` |
+| What | Path | Branch |
+|------|------|--------|
+| Plugin | `webapps/packages/angular-plugin-ui-bundle/` | `t/afs/w-22992550/angular-plugin` |
+| Test project | `sf-angular-test/force-app/main/default/uiBundles/myApp/` | — |
+| Template (TBD) | `webapps/packages/template/` | — |
 
 All under `/Users/kumargulshan/off-core/afs-workspace/`
+
+**Plugin PR:** https://github.com/salesforce-experience-platform-emu/webapps/pull/641
 
 ## Common Commands
 
 ```bash
 # Rebuild plugin
-cd webapps/packages/angular-plugin-ui-bundle && npm run build
+cd webapps/packages/angular-plugin-ui-bundle && npm run build && chmod +x dist/bin/serve.js
 
-# Rebuild templates
-cd salesforcedx-templates && npx tsc -b
+# Run plugin tests
+cd webapps/packages/angular-plugin-ui-bundle && npx vitest run
 
-# Generate template
-sf template generate ui-bundle -n myApp -t angularbasic
+# Dev (in test app)
+cd sf-angular-test/force-app/main/default/uiBundles/myApp && npm run dev
 
-# Dev / Design mode / Build / Deploy
-npm run dev
-SF_DESIGN_MODE=true npm run dev
+# Dev with orchestrator
+sf ui-bundle dev
+
+# Build / Deploy
 npm run build
 sf project deploy start --source-dir force-app
 ```
