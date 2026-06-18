@@ -1,5 +1,9 @@
 # Angular Support in UI Bundles
 
+**Google Doc:** https://docs.google.com/document/d/1xuyARUm6CClAif5hjgQAL2hIFfuPR-RJdONX3XtQLAM/edit
+
+---
+
 ## TL;DR
 
 **We will ship Angular CLI as the paved-path template for Angular UI Bundles.** It delivers all seven platform features, preserves the native Angular developer experience (ng commands, schematics, ng update), and targets Angular 17+ — which represents 74% of the active Angular ecosystem. Design mode, the one feature previously considered blocked, is achievable through template pre-processing before compilation — the same timing React uses. We accept maintaining a dedicated custom plugin as the cost of delivering a familiar, standard experience to Angular developers.

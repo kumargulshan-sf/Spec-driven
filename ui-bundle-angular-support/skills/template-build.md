@@ -352,6 +352,69 @@ SF_DESIGN_MODE=true npm run dev
 
 ---
 
+## Tailwind CSS Setup
+
+Angular CLI + Tailwind v4 requires:
+
+**1. Dependencies:**
+```json
+"devDependencies": {
+  "@tailwindcss/postcss": "^4.0.0",
+  "postcss": "^8.5.0",
+  "tailwindcss": "^4.0.0"
+}
+```
+
+**2. `.postcssrc.json` (NOT `postcss.config.js`):**
+```json
+{
+  "plugins": {
+    "@tailwindcss/postcss": {}
+  }
+}
+```
+Angular CLI looks for `.postcssrc.json` specifically. Using `postcss.config.js` does NOT work.
+
+**3. `src/styles.css`:**
+```css
+@import 'tailwindcss';
+
+@layer base {
+  html, body {
+    @apply min-h-screen;
+  }
+  body {
+    @apply antialiased bg-white;
+  }
+}
+```
+
+No `@source` directive needed — Tailwind v4 with `@tailwindcss/postcss` auto-scans all files in the project (including `.ts` files with inline templates).
+
+**4. `angular.json` — disable critical CSS inlining in production:**
+
+```json
+"production": {
+  "optimization": {
+    "scripts": true,
+    "styles": {
+      "minify": true,
+      "inlineCritical": false
+    }
+  }
+}
+```
+
+**Why `inlineCritical: false` is required:**
+
+Angular's default production build uses "beasties" to extract critical CSS and inline it in `<head>`, then lazy-loads the full stylesheet via `<link media="print" onload="this.media='all'">`.
+
+The problem: Angular renders `<app-root>` as empty HTML at build time (content is client-rendered). Beasties sees no elements using Tailwind utilities → inlines empty `@layer utilities{}` → full stylesheet loads as `media="print"` → brief flash of unstyled content (or permanently unstyled if `onload` doesn't fire on the deployment platform).
+
+With `inlineCritical: false`: Angular outputs a normal `<link rel="stylesheet" href="styles.css">` — styles load immediately, no flash, works on all platforms.
+
+---
+
 ## Gotchas
 
 1. **`file:` link path is 6 levels up** — `../../../../../../webapps/packages/angular-plugin-ui-bundle`. Five fails silently (symlink to nonexistent path).
@@ -359,3 +422,5 @@ SF_DESIGN_MODE=true npm run dev
 3. **Don't include `.DS_Store`** — remove `src/.DS_Store` if it sneaks in.
 4. **`ng serve` directly works but misses features** — proxy and HTML injection work (angular.json), but API version in deps and design mode don't (need bin command wrapper).
 5. **Template project name in angular.json** — hardcoded as `"myAngularApp"`. Could be EJS-templated if needed.
+6. **Use `.postcssrc.json` not `postcss.config.js`** — Angular CLI only recognizes the JSON format for PostCSS config.
+7. **`inlineCritical` must be `false`** — Angular's critical CSS extraction doesn't work with client-rendered SPA + Tailwind (empty utilities layer inlined).

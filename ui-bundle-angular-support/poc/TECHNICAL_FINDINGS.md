@@ -195,6 +195,24 @@ sf-angular-serve --design
 | Design mode modifies files on disk | If process crashes, files left modified | SIGINT/SIGTERM handlers restore; `git checkout` as safety net |
 | `ng serve` directly misses some features | No API version in deps, no design mode | Documented — use `npm run dev` (sf-angular-serve) |
 | Wrapper script still exists as bin command | User sees `sf-angular-serve` in package.json | Less visible than `scripts/dev.mjs` — just a named command |
+| Tailwind critical CSS inlining breaks production build | Styles load as `media="print"` → flash of unstyled content or permanently unstyled | Set `optimization.styles.inlineCritical: false` in angular.json |
+| PostCSS config must be `.postcssrc.json` | Angular CLI ignores `postcss.config.js` for Tailwind v4 | Use `.postcssrc.json` format only |
+
+---
+
+## Tailwind CSS Integration
+
+Angular CLI + Tailwind v4 requires specific setup:
+
+1. **`.postcssrc.json`** (not `postcss.config.js`) — Angular CLI only recognizes this format
+2. **`@import 'tailwindcss'`** in `src/styles.css` — no `@source` directive needed
+3. **`inlineCritical: false`** in production optimization — required because:
+   - Angular's "beasties" extracts critical CSS at build time
+   - `<app-root>` is empty in static HTML (content is client-rendered)
+   - Beasties can't detect which Tailwind utilities are needed → inlines empty `@layer utilities{}`
+   - Full stylesheet lazy-loads via `<link media="print" onload="this.media='all'">`
+   - On some platforms, `onload` may not fire → styles permanently missing
+   - Fix: disable inlining → normal `<link rel="stylesheet">` → styles load immediately
 
 ---
 
