@@ -1,7 +1,14 @@
 # Design Mode (Hybrid Editor)
 
-**Status:** POC Verified (June 2026)  
+**Status:** POC Verified (June 2026) — this page is the POC-era record.
+**For the active engineering plan see [[design-mode-angular]].**
 **Approach:** Template pre-processing before Angular AOT compilation
+
+> **Superseded framing:** the POC assumed a standalone Angular plugin as the
+> home. The real home is the framework-agnostic **`packages/ui-design-mode/`**
+> package — React lives in `source-locator/react/`; the Angular work is a new
+> `source-locator/angular/` sibling. The pre-processing technique below still
+> holds; only the location changed. See [[design-mode-angular]].
 
 ---
 
@@ -50,7 +57,8 @@ Injects `data-source-file="<file>:<line>:<col>"` attributes on DOM elements so t
 
 ## Related
 
-- [[angular-cli-plugin]] — parent project
+- [[design-mode-angular]] — the ACTIVE plan (correct home: `packages/ui-design-mode/source-locator/angular`)
 - [[design-mode-preprocess]] — decision record
-- `Skills/design-mode-build.md` (rebuild spec)
+- [[angular-cli-plugin]] — POC-era parent (now proxy/HTML middleware only)
+- `Skills/design-mode-build.md` (rebuild spec — locator function drafted there)
 - `poc/hybrid_editor_angular_cli.md` (detailed analysis)

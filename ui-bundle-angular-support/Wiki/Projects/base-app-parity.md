@@ -1,0 +1,303 @@
+# Base App Parity (React → Angular)
+
+**Status:** Planned (codegen deferred)
+**Goal:** Bring `base-angular-app` to parity with `base-react-app` for framework-neutral tooling.
+**Scope:** webapps repo `base-app` templates only. `angularinternalapp` is governed separately (mirrors `reactinternalapp`).
+
+```
+React: webapps/packages/template/base-app/base-react-app/src/force-app/main/default/uiBundles/base-react-app/
+Angular: webapps/packages/template/base-app/base-angular-app/src/force-app/main/default/uiBundles/base-angular-app/
+```
+
+---
+
+## Principle
+
+Don't copy React files blindly. For each file, ask *what job it does*, then implement the **Angular-proper** form. Three verdicts:
+
+- **PORT** — framework-neutral job Angular also needs.
+- **SKIP** — React-specific, no Angular equivalent job.
+- **ALREADY-COVERED** — job exists, Angular does it natively (e.g. `vite.config.ts` → `angular.json`).
+
+---
+
+## Status summary
+
+| Item | Verdict | State |
+|---|---|---|
+| `.editorconfig` (remove) | match React (none) | ✅ DONE |
+| `prettier` devDep (remove) | match React (root-only) | ✅ DONE |
+| `.npmrc` | PORT | 📋 TODO |
+| `README.md` | PORT (rewrite) | 📋 TODO |
+| `CHANGELOG.md` | PORT (seed header) | 📋 TODO |
+| e2e/Playwright job | PORT (adapt) | 📋 TODO |
+| `.gitignore` entries | PORT (partial) | 📋 TODO |
+| GraphQL codegen stack | PORT (DX) | ⏸️ DEFERRED — separate task |
+| `components.json` (shadcn) | SKIP | n/a |
+| `dev:design` / `preview` scripts | SKIP / flag | n/a |
+| `vite.*`, `vitest.*`, `tsconfig.node.json` | ALREADY-COVERED | `angular.json` + `tsconfig.spec.json` |
+
+---
+
+## Done (context)
+
+- **`.editorconfig`** deleted from `base-angular-app`. React's generated app ships none; Prettier + monorepo root `.editorconfig` cover the formatting outcome. (Root sets `indent_style=tab`, but Angular's `.prettierrc` reformats to spaces, so committed result is correct.)
+- **`prettier` devDep** (`^3.8.1`) removed from `base-angular-app/package.json`. React declares no local prettier; both lean on the monorepo root `prettier --write .`. Kept `.prettierrc` + `.prettierignore` (React has these too — already at parity).
+- **No `format`/`format:fix` scripts added** — confirmed React has neither.
+
+---
+
+## TODO — port items (non-codegen)
+
+### 1. `.npmrc` — verbatim port
+
+Net-new file. Identical content:
+
+```
+registry=https://registry.npmjs.org/
+```
+
+Job: deterministic installs regardless of a developer's global npm config.
+
+### 2. `README.md` — Angular-adapted rewrite
+
+Net-new (Angular bundle dir has none; only package root does). Do **not** copy React's verbatim — it references Vite/shadcn/GraphQL codegen. Angular version:
+
+```markdown
+# Base Angular App
+
+Base Angular App is a template application that demonstrates how to build an
+Angular UI Bundle on the Salesforce platform with the Angular CLI, TypeScript,
+Tailwind, and the Salesforce UI Bundle SDK. It provides a minimal shell (home,
+404), routing with standalone components and signals, so feature apps can
+extend it via the patches pipeline.
+
+This UI Bundle lives inside an SFDX project. The project root is the directory
+that contains `force-app/` and `sfdx-project.json`. Run the commands in the
+sections below from the paths indicated.
+
+## Table of contents
+
+- [Run (development)](#run-development)
+- [Build](#build)
+- [Deploy](#deploy)
+- [Test](#test)
+- [Lint](#lint)
+
+## Run (development)
+
+From the UI Bundle directory (`force-app/main/default/uiBundles/base-angular-app`):
+
+    npm install
+    npm run dev
+
+This starts the Salesforce Angular dev server (`sf-angular-serve`).
+
+## Build
+
+From the UI Bundle directory:
+
+    npm install
+    npm run build
+
+The production build is written to `dist/` inside the UI Bundle folder. Use
+`npm run watch` to rebuild on change in development mode.
+
+## Deploy
+
+From the **SFDX project root** (the directory that contains `force-app/`):
+
+1. Build the UI Bundle:
+
+       cd force-app/main/default/uiBundles/base-angular-app && npm install && npm run build && cd -
+
+2. Deploy the UI Bundle only:
+
+       sf project deploy start --source-dir force-app/main/default/ui-bundles --target-org <alias>
+
+   Or deploy all metadata:
+
+       sf project deploy start --source-dir force-app --target-org <alias>
+
+   Replace `<alias>` with your target org alias.
+
+## Test
+
+From the UI Bundle directory:
+
+    npm install
+    npm run test
+
+This runs the unit test suite via `ng test`.
+
+## Lint
+
+From the UI Bundle directory:
+
+    npm run lint
+```
+
+Adaptations vs React: dropped Vite/shadcn/GraphQL mentions; `dev` = `sf-angular-serve` (not `vite`); added `watch` + `lint` sections (Angular has both scripts); dropped `dev:design` (no Angular equivalent). E2E section to be added *with* the e2e port (item 4).
+
+> Verify `sf-angular-serve` exact behavior/port against [[angular-cli-plugin]] before finalizing the Run wording.
+
+### 3. `CHANGELOG.md` — seed header only
+
+Net-new. CHANGELOGs are auto-generated by **Lerna** (`webapps/lerna.json`: `conventionalCommits: true`, `changelogPreset: conventionalcommits`). Hand-port **only** the static preamble so Lerna has a file to append to. Do NOT copy React's `1.59.0` version entry (that's React's history).
+
+```markdown
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+```
+
+### 4. e2e / Playwright smoke-test job — PORT (adapted)
+
+React's job: build app → static-serve `dist/` → Playwright asserts home + 404 render. Framework-neutral; Angular has none. Three new files + scripts + 2 devDeps + `.gitignore` lines.
+
+**`scripts/rewrite-e2e-assets.mjs`** (new) — adapted regex. Angular's `angular.json` sets `deployUrl: "./"`, emitting `./main-HASH.js` refs; with an SPA fallback serving `index.html` for deep routes, those `./` paths resolve wrong and 404. Rewrite `./` → `/` (React rewrote `/assets/` instead — Angular has no `/assets/` dir; `outputPath.browser: ""` flattens output into `dist/`).
+
+```js
+/**
+ * Prepares dist/ for e2e: root-relative asset paths + SPA fallback for serve.
+ *
+ * angular.json sets deployUrl: "./", so the built index.html references
+ * scripts/styles with a relative "./" prefix (e.g. ./main-HASH.js). When the
+ * SPA fallback serves index.html for a deep route like /non-existent-route,
+ * those "./" paths resolve against the wrong base and 404, so the app never
+ * boots. Rewrite them to root-relative "/" paths.
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// angular.json outputPath: { base: "dist", browser: "" } -> files land in dist/
+const distDir = join(__dirname, '..', 'dist');
+
+// Rewrite index.html so asset paths are root-relative (./main-x.js -> /main-x.js)
+const indexPath = join(distDir, 'index.html');
+let html = readFileSync(indexPath, 'utf8');
+html = html.replace(/(src|href)="\.\//g, '$1="/');
+writeFileSync(indexPath, html);
+
+// SPA fallback so /non-existent-route etc. serve index.html
+writeFileSync(
+  join(distDir, 'serve.json'),
+  JSON.stringify({
+    rewrites: [{ source: '**', destination: '/index.html' }],
+  })
+);
+```
+
+**`playwright.config.ts`** (new) — port **5176** (React uses 5175, avoid collision). Serve static `dist/` because `ng serve` runs the SF plugin/proxy middleware and needs an org.
+
+```ts
+import { defineConfig, devices } from '@playwright/test';
+
+const E2E_PORT = 5176;
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: `http://localhost:${E2E_PORT}`,
+    trace: 'on-first-retry',
+  },
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  webServer: {
+    // Serve built dist/ with static server so e2e works in CI without SF org
+    // (ng serve runs the SF plugin/proxy middleware and can fail without an org).
+    command: `npx serve dist -l ${E2E_PORT}`,
+    url: `http://localhost:${E2E_PORT}`,
+    reuseExistingServer: !process.env.CI,
+    timeout: process.env.CI ? 120_000 : 60_000,
+  },
+});
+```
+
+**`e2e/app.spec.ts`** (new) — assertions target Angular markup (`home.component.html` `<h1>Home</h1>` + "Welcome to your Angular application."; `not-found.component.html` `<h1>404</h1>` + "Page not found"; `**` route in `app.routes.ts`).
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test.describe('base-angular-app', () => {
+  test('home page loads and shows welcome content', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible();
+    await expect(
+      page.getByText('Welcome to your Angular application.')
+    ).toBeVisible();
+  });
+
+  test('not found route shows 404', async ({ page }) => {
+    await page.goto('/non-existent-route');
+    await expect(page.getByRole('heading', { name: '404' })).toBeVisible();
+    await expect(page.getByText('Page not found')).toBeVisible();
+  });
+});
+```
+
+**`package.json` deltas:**
+
+```jsonc
+// scripts
+"build:e2e": "ng build && node scripts/rewrite-e2e-assets.mjs",
+"e2e": "playwright test"
+// devDependencies (match React versions)
+"@playwright/test": "^1.49.0",
+"serve": "^14.2.5"
+```
+
+### 5. `.gitignore` — add missing entries
+
+Angular's `.gitignore` already covers framework bits (`.angular/cache`, `out-tsc`, etc.). Add:
+
+```
+package-lock.json
+```
+(React ignores it; Angular doesn't. Both `.prettierignore` already ignore it — treat lockfiles as ignored for templates.)
+
+And **with the e2e port**, add the Playwright block:
+
+```
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+```
+
+`.prettierignore` is already at parity — no change.
+
+---
+
+## Deferred — GraphQL codegen (separate task)
+
+Full design researched and ready, but **out of scope for this round**. Summary for when we pick it up:
+
+- React's codegen stack (`.graphqlrc.yml`, `codegen.yml`, `scripts/get-graphql-schema.mjs`, `vite-plugin-graphql-codegen`) is **optional + schema-gated** — nothing committed, build/lint skip it when no schema. Angular's `graphql-client.service.ts` already fetches data fine without it.
+- The one real gap: the service doc-comment promises "generated operation types" the template can't currently produce.
+- Angular-proper port: `.graphqlrc.yml` + `codegen.yml` (`documents: src/**/*.{graphql,ts}`, drop tsx), copy `get-graphql-schema.mjs` (imports `getOrgInfo` from `@salesforce/ui-bundle/app` — add as explicit devDep), and a **self-gating `scripts/graphql-codegen.mjs`** (no Vite plugin → no-op exit 0 when no schema, so `ng build` stays green). Keep codegen **manual/opt-in**, not chained to build. Defer `@graphql-eslint` wiring (Angular template processor conflicts).
+- devDeps when done: `@graphql-codegen/cli ^6.1.0`, `@graphql-codegen/typescript ^5.0.6`, `@graphql-codegen/typescript-operations ^5.0.6`, `@graphql-tools/utils ^11.0.0`, `graphql ^16.11.0`, `graphql-codegen-typescript-operation-types ^2.0.2`, `@salesforce/ui-bundle ^10.20.0`.
+
+---
+
+## Open flags
+
+- **License headers:** React base-template `scripts/*.mjs` and `src/*` carry **no** copyright header (the header convention is enforced on plugin/SDK `packages/**/src`, not template `force-app` trees). Ported `.mjs` files should match the template's header-less convention. Confirm lint scope with [[angular-cli-plugin]].
+- **`dev:design` mode:** React has it (`vite --mode design`); Angular's `sf-angular-serve` has no design-mode flag wired. Cross-team decision — not blocking this parity round.
+- **`!.a4drules/` / `!.cursor/`** un-exclude lines: React has them, Angular doesn't. Add only if AI-rule dirs are expected at this level.
+
+---
+
+## Related
+
+- [[template-generator]] — `sf template generate` wiring (CLI side; this doc is the webapps template source of truth)
+- [[angular-cli-plugin]] — the plugin the template consumes (`sf-angular-serve`, middleware)
+- `Skills/template-build.md` — full template rebuild spec

@@ -4,8 +4,19 @@
 
 ## Projects
 
-- [Angular CLI Plugin](Projects/angular-cli-plugin.md) — custom plugin for Salesforce platform integration
-- [Design Mode](Projects/design-mode.md) — hybrid editor via template pre-processing
+### Current (Angular in webapps)
+
+- [Angular Apps](Projects/angular-apps.md) — external + internal apps, composition architecture
+- [Angular Features](Projects/angular-features.md) — auth, object-search, agentforce
+- [UI Primitives](Projects/ui-primitives.md) — 16 base-angular-app components + Material M3 theming
+- [Design Mode — Angular](Projects/design-mode-angular.md) — **active**: source-locator/angular in ui-design-mode
+- [GraphQL Codegen](Projects/codegen.md) — type-safe GraphQL via generated TS types; React→Angular port
+- [patches-cli Angular Support](Projects/patches-cli-angular.md) — composition-engine changes for Angular
+
+### POC-era (June 2026 — historical / superseded framing)
+
+- [Angular CLI Plugin](Projects/angular-cli-plugin.md) — superseded; now proxy/HTML middleware only
+- [Design Mode](Projects/design-mode.md) — POC record; see Design Mode — Angular for the plan
 - [Template Generator](Projects/template-generator.md) — `sf template generate` wiring
 
 ## Decisions

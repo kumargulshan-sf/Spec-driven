@@ -1,12 +1,22 @@
 # Angular CLI Plugin
 
-**Status:** POC Complete, Design Mode Verified  
-**Package:** (name TBD by product)  
-**Target:** Angular 17+ (`:application` builder)
+**Status:** ⚠️ SUPERSEDED — POC-era doc. The "one plugin delivers all 7 platform
+features (incl. design mode)" framing is no longer the shipped shape.
+**Package:** `webapps/packages/angular-plugin-ui-bundle` (exists; now proxy + HTML middleware only)
+**Target:** Angular 21.2.x (was documented as 17+)
 
 ---
 
-## What It Does
+> **What changed:** the shipped architecture is a React → Angular *port* inside
+> the `webapps` monorepo, not a single all-in-one plugin. Responsibilities split:
+> - **UI primitives** → `base-angular-app` (16 components + layout). See [[ui-primitives]].
+> - **Features/apps** → `feature-angular-*` + `angularexternalapp`/`angularinternalapp`. See [[angular-apps]], [[angular-features]].
+> - **Design mode** → `packages/ui-design-mode/source-locator/angular` (not the plugin). See [[design-mode-angular]].
+> - **`angular-plugin-ui-bundle`** → retains only the dev-server proxy + HTML middleware.
+>
+> The sections below describe the POC plugin as originally scoped — kept for history.
+
+## What It Did (POC scope)
 
 Integrates Salesforce platform features into Angular CLI's native build pipeline via `@angular-builders/custom-esbuild`. Delivers all 7 platform features without requiring developers to leave their familiar Angular toolchain.
 

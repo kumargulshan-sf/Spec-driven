@@ -44,24 +44,36 @@ poc/              — Historical archive (unchanged POC docs for reference)
 - Control files are prefixed with underscore (`_`)
 - Skills/ are build specs — keep them self-contained and reproducible
 
-## Project Context
+## Project Context (current — 2026-07)
 
-**Recommendation:** Ship Angular CLI as paved-path template for Angular UI Bundles.
-**Template names:** `angularbasic` (CLI, recommended), `angularvite` (Vite + Analog)
-**Target:** Angular 17+ (74% market share)
-**Feature parity:** 7/7 (all platform features including design mode via pre-processing)
+The active work is a **React → Angular port** inside the `webapps` monorepo, at
+full parity — NOT a standalone plugin/template study.
 
-## Repository Locations
+- **Apps (composed & committed):** `angularexternalapp` (Experience/B2C), `angularinternalapp` (CustomApplication). See `Wiki/Projects/angular-apps.md`.
+- **Features:** `feature-angular-authentication`, `feature-angular-object-search`, `feature-angular-agentforce-conversation-client`, `feature-graphql-core` (shared). See `Wiki/Projects/angular-features.md`.
+- **UI:** 16 primitives + layout in `base-angular-app`, Material M3 + shadcn tokens, Tailwind 4.0. See `Wiki/Projects/ui-primitives.md`.
+- **Stack:** Angular 21.2.x, Material/CDK 21.2.x.
+- **Active engineering task:** design mode for Angular via `packages/ui-design-mode/source-locator/angular`. See `Wiki/Projects/design-mode-angular.md`.
 
-| What | Path | Branch |
-|------|------|--------|
-| Plugin | `webapps/packages/angular-plugin-ui-bundle/` | `t/afs/w-22992550/angular-plugin` |
-| Test project | `sf-angular-test/force-app/main/default/uiBundles/myApp/` | — |
-| Template (TBD) | `webapps/packages/template/` | — |
+> **Superseded (June 2026 POC):** "Ship Angular CLI as paved-path template",
+> template names `angularbasic`/`angularvite`, Angular 17+ target, 7/7 all-in-one
+> plugin. Kept only in POC-era pages for history.
 
-All under `/Users/kumargulshan/off-core/afs-workspace/`
+## Repository Locations (current)
 
-**Plugin PR:** https://github.com/salesforce-experience-platform-emu/webapps/pull/641
+| What | Path |
+|------|------|
+| Apps | `webapps/packages/template/app/angularexternalapp`, `.../angularinternalapp` |
+| Base + primitives | `webapps/packages/template/base-app/base-angular-app/` |
+| Features | `webapps/packages/template/feature/feature-angular-*`, `.../feature-graphql-core` |
+| Design mode | `webapps/packages/ui-design-mode/` (React locator today; Angular sibling TBD) |
+| Legacy plugin | `webapps/packages/angular-plugin-ui-bundle/` (proxy + HTML middleware only) |
+
+All under `/Users/kumargulshan/off-core/afs-workspace/webapps`. Use
+`GH_HOST=gitcore.soma.salesforce.com gh` for gitcore repos.
+
+> **Superseded POC locations:** standalone `sf-angular-test` scratch project +
+> plugin PR #641 (`t/afs/w-22992550/angular-plugin` branch).
 
 ## Common Commands
 
